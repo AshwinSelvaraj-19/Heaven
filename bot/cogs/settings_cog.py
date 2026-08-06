@@ -8,6 +8,14 @@ from discord.ext import commands
 
 from bot.settings_store import get_settings, update_settings
 from bot.utils.permissions import is_admin
+from bot.constants import (
+    MIN_BITRATE,
+    MAX_BITRATE,
+    MIN_LIMIT,
+    MAX_LIMIT,
+    MIN_DELETE_DELAY,
+    MAX_DELETE_DELAY,
+)
 
 
 class VcSettingsGroup(app_commands.Group):
@@ -89,7 +97,7 @@ class VcSettingsGroup(app_commands.Group):
         name="limit", description="Set the user limit for temporary channels (0 = unlimited)."
     )
     @app_commands.describe(integer="Max users (0–99, 0 means no limit)")
-    async def limit(self, interaction: discord.Interaction, integer: app_commands.Range[int, 0, 99]) -> None:
+    async def limit(self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_LIMIT, MAX_LIMIT]) -> None:
         if not self._admin_check(interaction):
             return await self._deny(interaction)
 
@@ -107,7 +115,7 @@ class VcSettingsGroup(app_commands.Group):
     )
     @app_commands.describe(integer="Bitrate in kbps (8–384)")
     async def bitrate(
-        self, interaction: discord.Interaction, integer: app_commands.Range[int, 8, 384]
+        self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_BITRATE, MAX_BITRATE]
     ) -> None:
         if not self._admin_check(interaction):
             return await self._deny(interaction)
@@ -126,7 +134,7 @@ class VcSettingsGroup(app_commands.Group):
     )
     @app_commands.describe(integer="Seconds to wait before deletion (0–3600)")
     async def autodelete(
-        self, interaction: discord.Interaction, integer: app_commands.Range[int, 0, 3600]
+        self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_DELETE_DELAY, MAX_DELETE_DELAY]
     ) -> None:
         if not self._admin_check(interaction):
             return await self._deny(interaction)

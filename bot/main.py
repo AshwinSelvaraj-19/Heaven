@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from bot.config import config
+from bot.utils.temp_channels import cleanup_orphans
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,11 @@ class VCBot(commands.Bot):
         await self.tree.sync()
         logger.info("Slash commands synced.")
 
+    async def on_ready(self) -> None:
+        logger.info("Logged in as %s (ID: %s)", self.user, self.user.id)
+        await cleanup_orphans(self)
+        logger.info("Orphan cleanup complete.")
+
 
 async def main() -> None:
     if not config.DISCORD_TOKEN:
@@ -45,10 +51,6 @@ async def main() -> None:
         intents=intents,
         help_command=None,
     )
-
-    @bot.event
-    async def on_ready() -> None:
-        logger.info("Logged in as %s (ID: %s)", bot.user, bot.user.id)
 
     async with bot:
         await bot.start(config.DISCORD_TOKEN)

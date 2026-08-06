@@ -7,14 +7,22 @@ import logging
 import discord
 from discord.ext import commands
 
+from bot.constants import USER_CREATE_COOLDOWN
 from bot.settings_store import get_settings
+from bot.utils.logging_utils import log_action
+from bot.utils.ownership import (
+    get_channel_for_user,
+    is_on_cooldown,
+    mark_cooldown,
+)
 from bot.utils.temp_channels import (
     cancel_deletion,
     create_temp_channel,
     maybe_schedule_deletion,
+    reuse_existing_channel,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("bot.vc")
 
 
 class VoiceListenerCog(commands.Cog):
@@ -44,18 +52,39 @@ class VoiceListenerCog(commands.Cog):
     async def _handle_join(
         self, member: discord.Member, channel: discord.abc.VoiceChannel
     ) -> None:
-        """If the member joined the lobby, create a temp channel and move them."""
+        """If the member joined the lobby, create or reuse a temp channel."""
         settings = get_settings(member.guild.id)
         lobby_id = settings.get("lobby_id")
 
         if not lobby_id or channel.id != lobby_id:
             return
 
-        # Make sure the lobby itself isn't accidentally treated as a temp channel.
+        # The lobby itself should never be auto-deleted.
         cancel_deletion(channel.id)
 
+        # --- Duplicate prevention: reuse existing channel -------------------- #
+        existing_id = get_channel_for_user(member.id)
+        if existing_id is not None:
+            reused = await reuse_existing_channel(member.guild, member, existing_id)
+            if reused is not None:
+                return
+            # If reuse returned None the channel was deleted externally —
+            # fall through to create a new one.
+
+        # --- Rate limiting --------------------------------------------------- #
+        if is_on_cooldown(member.id, USER_CREATE_COOLDOWN):
+            log_action(
+                "CONFIG_ERROR",
+                guild=member.guild,
+                user=member,
+                detail=f"create blocked — cooldown ({USER_CREATE_COOLDOWN}s)",
+            )
+            return
+
         created = await create_temp_channel(member.guild, member)
-        if created is None:
+        if created is not None:
+            mark_cooldown(member.id)
+        else:
             # Settings incomplete or creation failed — notify the admin.
             try:
                 await member.send(
@@ -71,7 +100,6 @@ class VoiceListenerCog(commands.Cog):
         if not isinstance(channel, discord.VoiceChannel):
             return
 
-        # Only consider channels that are empty after the member left.
         if channel.members:
             return
 

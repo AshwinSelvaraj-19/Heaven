@@ -10,19 +10,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from bot.config import config
+from bot.constants import DEFAULT_BITRATE, DEFAULT_LIMIT, DEFAULT_AUTODELETE_SECONDS
 
 # guild_id -> {category_id, lobby_id, user_limit, bitrate, autodelete_seconds}
 _store: dict[int, dict[str, Any]] = {}
 
 
 def _defaults() -> dict[str, Any]:
+    """Return the default settings record for a new guild."""
     return {
         "category_id": None,
         "lobby_id": None,
-        "user_limit": config.DEFAULT_USER_LIMIT,
-        "bitrate": config.DEFAULT_BITRATE,
-        "autodelete_seconds": config.DEFAULT_AUTODELETE_SECONDS,
+        "user_limit": DEFAULT_LIMIT,
+        "bitrate": DEFAULT_BITRATE,
+        "autodelete_seconds": DEFAULT_AUTODELETE_SECONDS,
     }
 
 
@@ -43,3 +44,8 @@ def update_settings(guild_id: int, updates: dict[str, Any]) -> dict[str, Any]:
 def clear_settings(guild_id: int) -> None:
     """Remove a guild's settings entry entirely."""
     _store.pop(guild_id, None)
+
+
+def all_settings() -> dict[int, dict[str, Any]]:
+    """Return a shallow copy of all guild settings (used for orphan cleanup)."""
+    return dict(_store)
