@@ -20,6 +20,7 @@ Action = Literal[
     "VC_LOCKED",
     "VC_UNLOCKED",
     "VC_HIDDEN",
+    "VC_UNHIDDEN",
     "VC_RENAMED",
     "VC_MUTEALL",
     "VC_MOVALL",

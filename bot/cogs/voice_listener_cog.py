@@ -52,7 +52,7 @@ class VoiceListenerCog(commands.Cog):
     async def _handle_join(
         self, member: discord.Member, channel: discord.abc.VoiceChannel
     ) -> None:
-        """If the member joined the lobby, create or reuse a temp channel."""
+        """If the member joined the lobby, reuse their existing temp channel if any."""
         settings = get_settings(member.guild.id)
         lobby_id = settings.get("lobby_id")
 
@@ -62,38 +62,14 @@ class VoiceListenerCog(commands.Cog):
         # The lobby itself should never be auto-deleted.
         cancel_deletion(channel.id)
 
-        # --- Duplicate prevention: reuse existing channel -------------------- #
+        # --- Reuse existing channel if user has one ------------------------- #
         existing_id = get_channel_for_user(member.id)
         if existing_id is not None:
             reused = await reuse_existing_channel(member.guild, member, existing_id)
             if reused is not None:
                 return
             # If reuse returned None the channel was deleted externally —
-            # fall through to create a new one.
-
-        # --- Rate limiting --------------------------------------------------- #
-        if is_on_cooldown(member.id, USER_CREATE_COOLDOWN):
-            log_action(
-                "CONFIG_ERROR",
-                guild=member.guild,
-                user=member,
-                detail=f"create blocked — cooldown ({USER_CREATE_COOLDOWN}s)",
-            )
-            return
-
-        created = await create_temp_channel(member.guild, member)
-        if created is not None:
-            mark_cooldown(member.id)
-        else:
-            # Settings incomplete or creation failed — notify the admin.
-            try:
-                await member.send(
-                    "I couldn't create a temporary channel for you. "
-                    "Ask a server admin to configure the VC category with "
-                    "`/settings vc category`."
-                )
-            except discord.Forbidden:
-                pass
+            # user will need to create a new one with ?create vc
 
     async def _handle_leave(self, channel: discord.abc.VoiceChannel) -> None:
         """If a temp channel is now empty, schedule its deletion."""

@@ -263,10 +263,10 @@ async def cleanup_orphans(bot: discord.Client) -> None:
             continue
 
         for channel in category.voice_channels:
-            # Only delete empty channels whose name matches our naming pattern.
-            if channel.members and channel.name.startswith(TEMP_CHANNEL_PREFIX):
-                # Could be a leftover with members — leave it alone.
+            # Skip non-empty channels
+            if channel.members:
                 continue
+            # Only delete channels whose name matches our naming pattern
             if not channel.name.startswith(TEMP_CHANNEL_PREFIX):
                 continue
 

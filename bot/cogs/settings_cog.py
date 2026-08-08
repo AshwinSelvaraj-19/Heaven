@@ -2,7 +2,7 @@
 
 Commands are invoked by mentioning the bot followed by ``?``::
 
-    @Bot ?settings vc category <voice_channel>
+    @Bot ?settings vc category <category>
     @Bot ?settings vc lobby <voice_channel>
     @Bot ?settings vc limit <number>
     @Bot ?settings vc bitrate <kbps>
@@ -15,6 +15,7 @@ import discord
 from discord.ext import commands
 
 from bot.settings_store import update_settings
+from bot.utils.channel_utils import resolve_voice_channel, resolve_category
 from bot.utils.permissions import is_admin
 from bot.constants import (
     MIN_BITRATE,
@@ -38,38 +39,6 @@ async def _admin_check(ctx: commands.Context) -> bool:
     return True
 
 
-async def _resolve_voice_channel(
-    guild: discord.Guild, query: str
-) -> discord.VoiceChannel | None:
-    """Resolve a voice channel from a name, ID, or mention string."""
-    if not query:
-        return None
-
-    if query.startswith("<#") and query.endswith(">"):
-        try:
-            cid = int(query[2:-1])
-        except ValueError:
-            cid = None
-        if cid is not None:
-            ch = guild.get_channel(cid)
-            if isinstance(ch, discord.VoiceChannel):
-                return ch
-
-    try:
-        cid = int(query)
-    except ValueError:
-        cid = None
-    if cid is not None:
-        ch = guild.get_channel(cid)
-        if isinstance(ch, discord.VoiceChannel):
-            return ch
-
-    lowered = query.lower()
-    for ch in guild.voice_channels:
-        if ch.name.lower() == lowered:
-            return ch
-
-    return None
 
 
 class SettingsCog(commands.Cog):
@@ -95,25 +64,17 @@ class SettingsCog(commands.Cog):
         )
 
     # ------------------------------------------------------------------ #
-    # ?settings vc category <voice_channel>
+    # ?settings vc category <category>
     # ------------------------------------------------------------------ #
 
     @vc_settings.command(name="category", description="Set the category for temp VCs.")
-    async def category(self, ctx: commands.Context, *, voice_channel: str) -> None:
+    async def category(self, ctx: commands.Context, *, category_query: str) -> None:
         if not await _admin_check(ctx):
             return
 
-        channel = await _resolve_voice_channel(ctx.guild, voice_channel)
-        if channel is None:
-            await ctx.send("I couldn't find that voice channel.")
-            return
-
-        category = channel.category
+        category = resolve_category(ctx.guild, category_query)
         if category is None:
-            await ctx.send(
-                "That voice channel is not inside a category. "
-                "Please move it into a category first, or pick a channel that is in one."
-            )
+            await ctx.send("I couldn't find that category.")
             return
 
         update_settings(ctx.guild.id, {"category_id": category.id})
@@ -128,7 +89,7 @@ class SettingsCog(commands.Cog):
         if not await _admin_check(ctx):
             return
 
-        channel = await _resolve_voice_channel(ctx.guild, voice_channel)
+        channel = resolve_voice_channel(ctx.guild, voice_channel)
         if channel is None:
             await ctx.send("I couldn't find that voice channel.")
             return

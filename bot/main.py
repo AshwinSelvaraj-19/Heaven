@@ -57,11 +57,18 @@ class VCBot(commands.Bot):
         )
 
     async def setup_hook(self) -> None:
-        from bot.cogs import HelpCog, SettingsCog, VoiceListenerCog, VcCommandsCog
+        from bot.cogs import (
+            CreateCommandsCog,
+            HelpCog,
+            SettingsCog,
+            VoiceListenerCog,
+            VcCommandsCog,
+        )
 
         await self.add_cog(SettingsCog(self))
         await self.add_cog(VoiceListenerCog(self))
         await self.add_cog(VcCommandsCog(self))
+        await self.add_cog(CreateCommandsCog(self))
         await self.add_cog(HelpCog(self))
 
     async def on_ready(self) -> None:

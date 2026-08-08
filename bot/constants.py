@@ -25,12 +25,13 @@ DEFAULT_LIMIT: int = 5
 # ------------------------------------------------------------------ #
 MIN_DELETE_DELAY: int = 0
 MAX_DELETE_DELAY: int = 3600
-DEFAULT_AUTODELETE_SECONDS: int = 300  # 5 minutes
+DEFAULT_AUTODELETE_SECONDS: int = 60  # 60 seconds
 
 # ------------------------------------------------------------------ #
 # Rate limiting
 # ------------------------------------------------------------------ #
 USER_CREATE_COOLDOWN: int = 5  # seconds between temp channel creations per user
+COMMAND_COOLDOWN: int = 3  # seconds between VC commands (rename, muteall, movall)
 
 # ------------------------------------------------------------------ #
 # Temp channel naming

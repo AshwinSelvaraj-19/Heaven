@@ -5,27 +5,6 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
-HELP_TEXT = """\
-**Voice Channel Commands**
-`?vc lock` — Lock your temp VC so new members cannot join.
-`?vc unlock` — Unlock your temp VC so members can join again.
-`?vc hide` — Hide your temp VC from non-members.
-`?vc muteall` — Server-mute everyone in your temp VC.
-`?vc movall <target>` — Move everyone from your temp VC to another voice channel.
-`?vc rename <name>` — Rename your temp VC.
-
-**Settings Commands** (admin only)
-`?settings vc category <voice_channel>` — Set the category for temp VCs.
-`?settings vc lobby <voice_channel>` — Set the lobby channel.
-`?settings vc limit <number>` — Set the user limit (0 = unlimited).
-`?settings vc bitrate <kbps>` — Set the bitrate (8–384 kbps).
-`?settings vc autodelete <seconds>` — Set the autodelete delay (0–3600 seconds).
-
-**Usage**
-Mention the bot followed by `?` before any command, e.g.:
-`@{bot} ?vc lock`
-"""
-
 
 class HelpCog(commands.Cog):
     """Registers the ``?help`` command."""
@@ -35,8 +14,52 @@ class HelpCog(commands.Cog):
 
     @commands.command(name="help", description="Show available commands.")
     async def help(self, ctx: commands.Context) -> None:
-        bot_name = self.bot.user.display_name if self.bot.user else "Bot"
-        await ctx.send(HELP_TEXT.format(bot=bot_name))
+        """Display a clean help panel with all available commands."""
+        bot_name = self.bot.user.display_name if self.bot.user else "Heaven"
+
+        embed = discord.Embed(
+            title="🎤 Heaven Voice Commands",
+            description=f"Use `@{bot_name} ?` before any command.",
+            color=discord.Color.blue(),
+        )
+
+        # Voice Commands
+        voice_commands = (
+            "`?create vc <name>` — Create your own temporary VC.\n"
+            "`?vc lock` — Lock the current VC.\n"
+            "`?vc unlock` — Unlock the current VC.\n"
+            "`?vc hide` — Hide the current VC.\n"
+            "`?vc unhide` — Unhide the current VC.\n"
+            "`?vc muteall` — Mute everyone in the current VC.\n"
+            "`?vc movall <target>` — Move everyone to another VC.\n"
+            "`?vc rename <name>` — Rename the current VC."
+        )
+        embed.add_field(name="🎤 Voice Commands", value=voice_commands, inline=False)
+
+        # Admin Settings
+        admin_settings = (
+            "`?settings vc category <category>` — Set where temporary VCs are created.\n"
+            "`?settings vc lobby <voice_channel>` — Set the Join to Create lobby.\n"
+            "`?settings vc limit <number>` — Set the temporary VC user limit.\n"
+            "`?settings vc bitrate <kbps>` — Set temporary VC bitrate.\n"
+            "`?settings vc autodelete <seconds>` — Set how long an empty temporary VC remains before deletion."
+        )
+        embed.add_field(name="⚙️ Admin Settings (🔒 Administrator Only)", value=admin_settings, inline=False)
+
+        # How It Works
+        how_it_works = (
+            "1. Join the Join to Create voice channel.\n"
+            "2. Type: `@Heaven ?create vc <name>`\n"
+            "3. Heaven creates your VC.\n"
+            "4. Heaven moves you into it.\n"
+            "5. You control that VC only.\n"
+            "6. When everyone leaves, it is deleted after the configured delay.\n\n"
+            "**Example:** `@Heaven ?create vc 🎮・Phoenix Gaming`"
+        )
+        embed.add_field(name="📌 How It Works", value=how_it_works, inline=False)
+
+        embed.set_footer(text=f"Prefix: @{bot_name} ?")
+        await ctx.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:
