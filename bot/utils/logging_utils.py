@@ -17,6 +17,9 @@ logger = logging.getLogger("bot.vc")
 Action = Literal[
     "VC_CREATED",
     "VC_DELETED",
+    "VC_LOCKED",
+    "VC_UNLOCKED",
+    "VC_RENAMED",
     "USER_MOVED",
     "DELETE_CANCELLED",
     "CONFIG_ERROR",

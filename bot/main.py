@@ -28,10 +28,11 @@ class VCBot(commands.Bot):
     """Bot subclass with cogs auto-loaded on startup."""
 
     async def setup_hook(self) -> None:
-        from bot.cogs import SettingsCog, VoiceListenerCog
+        from bot.cogs import SettingsCog, VoiceListenerCog, VcCommandsCog
 
         await self.add_cog(SettingsCog(self))
         await self.add_cog(VoiceListenerCog(self))
+        await self.add_cog(VcCommandsCog(self))
         await self.tree.sync()
         logger.info("Slash commands synced.")
 

@@ -2,5 +2,6 @@
 
 from .settings_cog import SettingsCog
 from .voice_listener_cog import VoiceListenerCog
+from .vc_commands_cog import VcCommandsCog
 
-__all__ = ["SettingsCog", "VoiceListenerCog"]
+__all__ = ["SettingsCog", "VoiceListenerCog", "VcCommandsCog"]
