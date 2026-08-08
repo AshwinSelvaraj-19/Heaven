@@ -1,12 +1,20 @@
-"""``/settings vc`` slash command group — admin-only VC configuration."""
+"""``?settings vc`` prefix command group — admin-only VC configuration.
+
+Commands are invoked by mentioning the bot followed by ``?``::
+
+    @Bot ?settings vc category <voice_channel>
+    @Bot ?settings vc lobby <voice_channel>
+    @Bot ?settings vc limit <number>
+    @Bot ?settings vc bitrate <kbps>
+    @Bot ?settings vc autodelete <seconds>
+"""
 
 from __future__ import annotations
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
-from bot.settings_store import get_settings, update_settings
+from bot.settings_store import update_settings
 from bot.utils.permissions import is_admin
 from bot.constants import (
     MIN_BITRATE,
@@ -18,144 +26,182 @@ from bot.constants import (
 )
 
 
-class VcSettingsGroup(app_commands.Group):
-    """``/settings vc <subcommand>`` group."""
+async def _admin_check(ctx: commands.Context) -> bool:
+    """Return True if the author is a server admin; send a denial if not."""
+    member = ctx.author
+    if not isinstance(member, discord.Member):
+        await ctx.send("This command can only be used in a server.")
+        return False
+    if not is_admin(member):
+        await ctx.send("You need **Administrator** permissions to use this command.")
+        return False
+    return True
 
-    def __init__(self) -> None:
-        super().__init__(name="vc", description="Configure temporary voice channels")
 
-    # ------------------------------------------------------------------ #
-    # Helper
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _admin_check(interaction: discord.Interaction) -> bool:
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            # In DMs the member object isn't available — deny by default.
-            return False
-        return is_admin(member)
+async def _resolve_voice_channel(
+    guild: discord.Guild, query: str
+) -> discord.VoiceChannel | None:
+    """Resolve a voice channel from a name, ID, or mention string."""
+    if not query:
+        return None
 
-    async def _deny(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(
-            "You need **Administrator** permissions to use this command.",
-            ephemeral=True,
-        )
+    if query.startswith("<#") and query.endswith(">"):
+        try:
+            cid = int(query[2:-1])
+        except ValueError:
+            cid = None
+        if cid is not None:
+            ch = guild.get_channel(cid)
+            if isinstance(ch, discord.VoiceChannel):
+                return ch
 
-    # ------------------------------------------------------------------ #
-    # /settings vc category <voice_channel>
-    # ------------------------------------------------------------------ #
-    @app_commands.command(
-        name="category",
-        description="Set the category where temporary voice channels are created.",
-    )
-    @app_commands.describe(
-        voice_channel="A channel in the category to use (any voice channel works)"
-    )
-    async def category(
-        self, interaction: discord.Interaction, voice_channel: discord.VoiceChannel
-    ) -> None:
-        if not self._admin_check(interaction):
-            return await self._deny(interaction)
+    try:
+        cid = int(query)
+    except ValueError:
+        cid = None
+    if cid is not None:
+        ch = guild.get_channel(cid)
+        if isinstance(ch, discord.VoiceChannel):
+            return ch
 
-        category = voice_channel.category
-        if category is None:
-            await interaction.response.send_message(
-                "That voice channel is not inside a category. "
-                "Please move it into a category first, or pick a channel that is in one.",
-                ephemeral=True,
-            )
-            return
+    lowered = query.lower()
+    for ch in guild.voice_channels:
+        if ch.name.lower() == lowered:
+            return ch
 
-        update_settings(interaction.guild_id, {"category_id": category.id})
-        await interaction.response.send_message(
-            f"Temp channels will be created in **{category.name}**.", ephemeral=True
-        )
-
-    # ------------------------------------------------------------------ #
-    # /settings vc lobby <voice_channel>
-    # ------------------------------------------------------------------ #
-    @app_commands.command(
-        name="lobby",
-        description="Set the lobby channel users join to trigger temp channel creation.",
-    )
-    @app_commands.describe(voice_channel="The voice channel to use as the lobby")
-    async def lobby(
-        self, interaction: discord.Interaction, voice_channel: discord.VoiceChannel
-    ) -> None:
-        if not self._admin_check(interaction):
-            return await self._deny(interaction)
-
-        update_settings(interaction.guild_id, {"lobby_id": voice_channel.id})
-        await interaction.response.send_message(
-            f"Lobby channel set to **{voice_channel.name}**.", ephemeral=True
-        )
-
-    # ------------------------------------------------------------------ #
-    # /settings vc limit <integer>
-    # ------------------------------------------------------------------ #
-    @app_commands.command(
-        name="limit", description="Set the user limit for temporary channels (0 = unlimited)."
-    )
-    @app_commands.describe(integer="Max users (0–99, 0 means no limit)")
-    async def limit(self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_LIMIT, MAX_LIMIT]) -> None:
-        if not self._admin_check(interaction):
-            return await self._deny(interaction)
-
-        update_settings(interaction.guild_id, {"user_limit": integer})
-        label = "unlimited" if integer == 0 else str(integer)
-        await interaction.response.send_message(
-            f"Temp channel user limit set to **{label}**.", ephemeral=True
-        )
-
-    # ------------------------------------------------------------------ #
-    # /settings vc bitrate <integer>
-    # ------------------------------------------------------------------ #
-    @app_commands.command(
-        name="bitrate", description="Set the bitrate (kbps) for temporary channels."
-    )
-    @app_commands.describe(integer="Bitrate in kbps (8–384)")
-    async def bitrate(
-        self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_BITRATE, MAX_BITRATE]
-    ) -> None:
-        if not self._admin_check(interaction):
-            return await self._deny(interaction)
-
-        update_settings(interaction.guild_id, {"bitrate": integer * 1000})
-        await interaction.response.send_message(
-            f"Temp channel bitrate set to **{integer} kbps**.", ephemeral=True
-        )
-
-    # ------------------------------------------------------------------ #
-    # /settings vc autodelete <integer>
-    # ------------------------------------------------------------------ #
-    @app_commands.command(
-        name="autodelete",
-        description="Set how long (seconds) before an empty temp channel is deleted.",
-    )
-    @app_commands.describe(integer="Seconds to wait before deletion (0–3600)")
-    async def autodelete(
-        self, interaction: discord.Interaction, integer: app_commands.Range[int, MIN_DELETE_DELAY, MAX_DELETE_DELAY]
-    ) -> None:
-        if not self._admin_check(interaction):
-            return await self._deny(interaction)
-
-        update_settings(interaction.guild_id, {"autodelete_seconds": integer})
-        await interaction.response.send_message(
-            f"Autodelete delay set to **{integer} seconds**.", ephemeral=True
-        )
+    return None
 
 
 class SettingsCog(commands.Cog):
-    """Registers the ``/settings`` command tree."""
+    """``?settings`` prefix command group — server configuration."""
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        settings_group = app_commands.Group(
-            name="settings",
-            description="Server settings",
+
+    @commands.group(name="settings", invoke_without_command=True)
+    async def settings(self, ctx: commands.Context) -> None:
+        """Server settings."""
+        await ctx.send(
+            "Available settings: `?settings vc category`, `?settings vc lobby`, "
+            "`?settings vc limit`, `?settings vc bitrate`, `?settings vc autodelete`."
         )
-        settings_group.add_command(VcSettingsGroup())
-        bot.tree.add_command(settings_group)
+
+    @settings.group(name="vc", invoke_without_command=True)
+    async def vc_settings(self, ctx: commands.Context) -> None:
+        """Configure temporary voice channels."""
+        await ctx.send(
+            "Available VC settings: `?settings vc category`, `?settings vc lobby`, "
+            "`?settings vc limit`, `?settings vc bitrate`, `?settings vc autodelete`."
+        )
+
+    # ------------------------------------------------------------------ #
+    # ?settings vc category <voice_channel>
+    # ------------------------------------------------------------------ #
+
+    @vc_settings.command(name="category", description="Set the category for temp VCs.")
+    async def category(self, ctx: commands.Context, *, voice_channel: str) -> None:
+        if not await _admin_check(ctx):
+            return
+
+        channel = await _resolve_voice_channel(ctx.guild, voice_channel)
+        if channel is None:
+            await ctx.send("I couldn't find that voice channel.")
+            return
+
+        category = channel.category
+        if category is None:
+            await ctx.send(
+                "That voice channel is not inside a category. "
+                "Please move it into a category first, or pick a channel that is in one."
+            )
+            return
+
+        update_settings(ctx.guild.id, {"category_id": category.id})
+        await ctx.send(f"Temp channels will be created in **{category.name}**.")
+
+    # ------------------------------------------------------------------ #
+    # ?settings vc lobby <voice_channel>
+    # ------------------------------------------------------------------ #
+
+    @vc_settings.command(name="lobby", description="Set the lobby channel.")
+    async def lobby(self, ctx: commands.Context, *, voice_channel: str) -> None:
+        if not await _admin_check(ctx):
+            return
+
+        channel = await _resolve_voice_channel(ctx.guild, voice_channel)
+        if channel is None:
+            await ctx.send("I couldn't find that voice channel.")
+            return
+
+        update_settings(ctx.guild.id, {"lobby_id": channel.id})
+        await ctx.send(f"Lobby channel set to **{channel.name}**.")
+
+    # ------------------------------------------------------------------ #
+    # ?settings vc limit <number>
+    # ------------------------------------------------------------------ #
+
+    @vc_settings.command(name="limit", description="Set the user limit for temp VCs (0 = unlimited).")
+    async def limit(self, ctx: commands.Context, *, number: str) -> None:
+        if not await _admin_check(ctx):
+            return
+
+        try:
+            value = int(number.strip())
+        except ValueError:
+            await ctx.send("Please provide a valid number (0–99).")
+            return
+
+        if not (MIN_LIMIT <= value <= MAX_LIMIT):
+            await ctx.send(f"The limit must be between {MIN_LIMIT} and {MAX_LIMIT}.")
+            return
+
+        update_settings(ctx.guild.id, {"user_limit": value})
+        label = "unlimited" if value == 0 else str(value)
+        await ctx.send(f"Temp channel user limit set to **{label}**.")
+
+    # ------------------------------------------------------------------ #
+    # ?settings vc bitrate <kbps>
+    # ------------------------------------------------------------------ #
+
+    @vc_settings.command(name="bitrate", description="Set the bitrate (kbps) for temp VCs.")
+    async def bitrate(self, ctx: commands.Context, *, kbps: str) -> None:
+        if not await _admin_check(ctx):
+            return
+
+        try:
+            value = int(kbps.strip())
+        except ValueError:
+            await ctx.send("Please provide a valid number (8–384).")
+            return
+
+        if not (MIN_BITRATE <= value <= MAX_BITRATE):
+            await ctx.send(f"The bitrate must be between {MIN_BITRATE} and {MAX_BITRATE} kbps.")
+            return
+
+        update_settings(ctx.guild.id, {"bitrate": value * 1000})
+        await ctx.send(f"Temp channel bitrate set to **{value} kbps**.")
+
+    # ------------------------------------------------------------------ #
+    # ?settings vc autodelete <seconds>
+    # ------------------------------------------------------------------ #
+
+    @vc_settings.command(name="autodelete", description="Set the autodelete delay (seconds) for temp VCs.")
+    async def autodelete(self, ctx: commands.Context, *, seconds: str) -> None:
+        if not await _admin_check(ctx):
+            return
+
+        try:
+            value = int(seconds.strip())
+        except ValueError:
+            await ctx.send("Please provide a valid number (0–3600).")
+            return
+
+        if not (MIN_DELETE_DELAY <= value <= MAX_DELETE_DELAY):
+            await ctx.send(f"The delay must be between {MIN_DELETE_DELAY} and {MAX_DELETE_DELAY} seconds.")
+            return
+
+        update_settings(ctx.guild.id, {"autodelete_seconds": value})
+        await ctx.send(f"Autodelete delay set to **{value} seconds**.")
 
 
 async def setup(bot: commands.Bot) -> None:

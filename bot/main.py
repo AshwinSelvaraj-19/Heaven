@@ -1,4 +1,13 @@
-"""Bot entry point — loads cogs and starts the bot."""
+"""Bot entry point — loads cogs and starts the bot.
+
+Commands are triggered by mentioning the bot followed by ``?``, e.g.::
+
+    @Bot ?vc lock
+    @Bot ?settings vc limit 5
+
+The mention-plus-``?`` prefix is enforced by overriding
+:meth:`commands.Bot.get_prefix` — a bare ``?`` prefix is never accepted.
+"""
 
 from __future__ import annotations
 
@@ -22,19 +31,38 @@ intents = discord.Intents.default()
 intents.voice_states = True
 intents.guilds = True
 intents.members = True
+intents.message_content = True  # required for mention-prefixed commands
+
+
+def _mention_prefix(bot: commands.Bot, _message: discord.Message) -> list[str]:
+    """Return the only accepted prefixes: ``<@bot_id> ?`` and ``<@!bot_id> ?``.
+
+    discord.py calls this function for every message. If the message does not
+    start with one of these exact prefixes, the bot ignores it entirely.
+    """
+    if bot.user is None:
+        return []
+    return [f"<@{bot.user.id}> ?", f"<@!{bot.user.id}> ?"]
 
 
 class VCBot(commands.Bot):
     """Bot subclass with cogs auto-loaded on startup."""
 
+    def __init__(self) -> None:
+        super().__init__(
+            command_prefix=_mention_prefix,
+            intents=intents,
+            help_command=None,
+            strip_after_prefix=True,
+        )
+
     async def setup_hook(self) -> None:
-        from bot.cogs import SettingsCog, VoiceListenerCog, VcCommandsCog
+        from bot.cogs import HelpCog, SettingsCog, VoiceListenerCog, VcCommandsCog
 
         await self.add_cog(SettingsCog(self))
         await self.add_cog(VoiceListenerCog(self))
         await self.add_cog(VcCommandsCog(self))
-        await self.tree.sync()
-        logger.info("Slash commands synced.")
+        await self.add_cog(HelpCog(self))
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (ID: %s)", self.user, self.user.id)
@@ -47,11 +75,7 @@ async def main() -> None:
         logger.error("DISCORD_TOKEN is not set. Add it to your .env file.")
         return
 
-    bot = VCBot(
-        command_prefix="!",
-        intents=intents,
-        help_command=None,
-    )
+    bot = VCBot()
 
     async with bot:
         await bot.start(config.DISCORD_TOKEN)
