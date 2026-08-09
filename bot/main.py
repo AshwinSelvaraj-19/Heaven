@@ -18,6 +18,7 @@ import discord
 from discord.ext import commands
 
 from bot.config import config
+from bot.settings_store import preload_all_settings
 from bot.utils.temp_channels import cleanup_orphans
 
 logging.basicConfig(
@@ -73,6 +74,7 @@ class VCBot(commands.Bot):
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (ID: %s)", self.user, self.user.id)
+        await asyncio.to_thread(preload_all_settings)
         await cleanup_orphans(self)
         logger.info("Orphan cleanup complete.")
 
