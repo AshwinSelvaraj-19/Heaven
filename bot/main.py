@@ -20,6 +20,7 @@ from discord.ext import commands
 from bot.config import config
 from bot.settings_store import preload_all_settings
 from bot.utils.temp_channels import cleanup_orphans
+from bot.utils.permanent_voice import connect_to_permanent_voice
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,6 +78,7 @@ class VCBot(commands.Bot):
         await asyncio.to_thread(preload_all_settings)
         await cleanup_orphans(self)
         logger.info("Orphan cleanup complete.")
+        await connect_to_permanent_voice(self)
 
 
 async def main() -> None:

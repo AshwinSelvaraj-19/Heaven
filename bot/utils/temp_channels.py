@@ -23,6 +23,7 @@ from bot.utils.ownership import (
     set_delete_task,
     unregister_channel,
 )
+from bot.utils.permanent_voice import get_permanent_channel_id
 
 logger = logging.getLogger("bot.vc")
 
@@ -265,6 +266,10 @@ async def cleanup_orphans(bot: discord.Client) -> None:
         for channel in category.voice_channels:
             # Skip non-empty channels
             if channel.members:
+                continue
+            # Skip the permanent voice channel
+            permanent_id = get_permanent_channel_id()
+            if permanent_id is not None and channel.id == permanent_id:
                 continue
             # Only delete channels whose name matches our naming pattern
             if not channel.name.startswith(TEMP_CHANNEL_PREFIX):

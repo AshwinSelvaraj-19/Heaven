@@ -15,6 +15,7 @@ from bot.utils.ownership import (
     is_on_cooldown,
     mark_cooldown,
 )
+from bot.utils.permanent_voice import on_bot_voice_state_update
 from bot.utils.temp_channels import (
     cancel_deletion,
     create_temp_channel,
@@ -45,6 +46,10 @@ class VoiceListenerCog(commands.Cog):
         # --- Leaving a channel ------------------------------------------------ #
         if before.channel is not None and before.channel != after.channel:
             await self._handle_leave(before.channel)
+
+        # --- Permanent voice reconnection ------------------------------------- #
+        # Check if the bot itself was disconnected and trigger reconnection if needed
+        on_bot_voice_state_update(self.bot, member, before, after)
 
     # ------------------------------------------------------------------ #
     # Handlers

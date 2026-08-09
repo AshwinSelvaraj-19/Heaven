@@ -18,6 +18,7 @@ class Config:
     DISCORD_TOKEN: str = os.getenv("DISCORD_TOKEN", "")
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    PERMANENT_VOICE_CHANNEL_ID: str = os.getenv("PERMANENT_VOICE_CHANNEL_ID", "")
 
     def validate_supabase(self) -> bool:
         """Return True if both Supabase variables are present.
