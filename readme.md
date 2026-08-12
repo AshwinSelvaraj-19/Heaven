@@ -14,7 +14,7 @@ A Discord bot (discord.py 2.x) that lets server admins configure temporary voice
 - **Auto lifecycle** — temp channels are created on lobby join and deleted after being empty for the configured duration.
 
 ## Setup
-
+      
 ### 1. Create your bot
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a new application.
