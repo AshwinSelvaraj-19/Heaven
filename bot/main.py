@@ -101,8 +101,7 @@ class VCBot(commands.Bot):
     async def setup_hook(self) -> None:
         """Load production cogs."""
 
-        # AntiSpamCog is intentionally NOT loaded here.
-        # It is local/unreleased work and must not affect production.
+        
 
         from bot.cogs import (
             CreateCommandsCog,
