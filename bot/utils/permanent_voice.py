@@ -1,12 +1,8 @@
 """Manages permanent voice channel connection for the bot.
 
-This module handles connecting the bot to a permanent voice channel that
-already exists in the Discord server. The bot will join this channel on
-startup and maintain the connection with automatic reconnection on failure.
-
-The permanent voice channel is completely separate from the temporary VC
-system - it has no ownership tracking, no autodeletion, and is excluded
-from all temporary VC cleanup operations.
+The permanent voice channel is separate from the temporary VC system.
+The bot joins this channel on startup and maintains the connection with
+safe automatic reconnection.
 """
 
 from __future__ import annotations
@@ -20,273 +16,428 @@ from bot.config import config
 
 logger = logging.getLogger("bot.permanent_voice")
 
-# Track the permanent voice channel ID to exclude from cleanup
+# ------------------------------------------------------------------ #
+# Permanent channel
+# ------------------------------------------------------------------ #
+
 _PERMANENT_CHANNEL_ID: int | None = None
 
-# Reconnection backoff settings
-_MAX_RETRIES = 5
-_INITIAL_BACKOFF = 2.0  # seconds
-_MAX_BACKOFF = 60.0  # seconds
+# ------------------------------------------------------------------ #
+# Reconnection configuration
+# ------------------------------------------------------------------ #
 
-# Task guard to prevent duplicate reconnection attempts
+_MAX_RETRIES = 5
+_INITIAL_BACKOFF = 3.0
+_MAX_BACKOFF = 60.0
+
+# Wait before custom reconnect.
+#
+# discord.py already has its own voice reconnection mechanism.
+# We wait first so we don't race against it.
+_RECONNECT_DELAY = 8.0
+
+# Background reconnect task.
 _reconnect_task: asyncio.Task[None] | None = None
 
 
 def get_permanent_channel_id() -> int | None:
-    """Return the permanent voice channel ID, or None if not configured."""
+    """Return the configured permanent voice channel ID."""
     return _PERMANENT_CHANNEL_ID
 
 
 def _parse_channel_id() -> int | None:
-    """Parse PERMANENT_VOICE_CHANNEL_ID from config.
+    """Parse PERMANENT_VOICE_CHANNEL_ID from configuration."""
 
-    Returns None if not configured or invalid.
-    """
     channel_id_str = config.PERMANENT_VOICE_CHANNEL_ID
+
     if not channel_id_str:
         return None
 
     try:
         return int(channel_id_str)
+
     except (ValueError, TypeError):
         logger.error(
-            "Invalid PERMANENT_VOICE_CHANNEL_ID: %r (must be an integer)",
-            channel_id_str
+            "Invalid PERMANENT_VOICE_CHANNEL_ID: %r "
+            "(must be an integer)",
+            channel_id_str,
         )
         return None
 
 
-async def connect_to_permanent_voice(bot: discord.Client) -> None:
-    """Connect the bot to the permanent voice channel.
+def _find_permanent_channel(
+    bot: discord.Client,
+) -> discord.VoiceChannel | None:
+    """Find the configured permanent voice channel."""
 
-    This function:
-    - Resolves the channel ID from config
-    - Verifies the channel exists and is a voice channel
-    - Connects the bot to it
-    - Handles connection failures gracefully
-    - Does not block if the channel is not configured
+    channel_id = get_permanent_channel_id()
 
-    The connection is attempted once on startup. If it fails, an error
-    is logged but the bot continues to function normally.
-    """
+    if channel_id is None:
+        return None
+
+    for guild in bot.guilds:
+        channel = guild.get_channel(channel_id)
+
+        if isinstance(channel, discord.VoiceChannel):
+            return channel
+
+    return None
+
+
+def _is_connected_to_permanent_channel(
+    channel: discord.VoiceChannel,
+) -> bool:
+    """Return True only when the bot has a healthy voice connection."""
+
+    voice_client = channel.guild.voice_client
+
+    if voice_client is None:
+        return False
+
+    if not voice_client.is_connected():
+        return False
+
+    if voice_client.channel is None:
+        return False
+
+    return voice_client.channel.id == channel.id
+
+
+async def connect_to_permanent_voice(
+    bot: discord.Client,
+) -> None:
+    """Connect the bot to the permanent voice channel on startup."""
+
     global _PERMANENT_CHANNEL_ID
 
     channel_id = _parse_channel_id()
-    if not channel_id:
-        logger.info("No permanent voice channel configured (PERMANENT_VOICE_CHANNEL_ID not set)")
+
+    if channel_id is None:
+        logger.info(
+            "No permanent voice channel configured "
+            "(PERMANENT_VOICE_CHANNEL_ID not set)"
+        )
         return
 
     _PERMANENT_CHANNEL_ID = channel_id
 
-    # Find the channel across all guilds
-    channel = None
-    for guild in bot.guilds:
-        found = guild.get_channel(channel_id)
-        if found is not None:
-            channel = found
-            break
+    channel = _find_permanent_channel(bot)
 
     if channel is None:
         logger.error(
-            "Permanent voice channel %s not found in any guild",
-            channel_id
-        )
-        return
-
-    if not isinstance(channel, discord.VoiceChannel):
-        logger.error(
-            "Permanent voice channel %s is not a voice channel (type: %s)",
+            "Permanent voice channel %s was not found "
+            "in any guild.",
             channel_id,
-            type(channel).__name__
         )
         return
 
-    # Check if bot is already connected to this channel
-    voice_client = channel.guild.voice_client
-    if voice_client is not None and voice_client.channel.id == channel.id:
+    # Already connected correctly.
+    if _is_connected_to_permanent_channel(channel):
         logger.info(
             "Already connected to permanent voice channel: %s",
-            channel.name
+            channel.name,
         )
         return
 
-    # Connect to the channel
     logger.info(
         "Connecting to permanent voice channel: %s (ID: %s)",
         channel.name,
-        channel.id
+        channel.id,
     )
 
     try:
         await channel.connect()
+
         logger.info(
             "Connected to permanent voice channel: %s",
-            channel.name
+            channel.name,
         )
+
+    except discord.ClientException as exc:
+        # This can happen when discord.py is already attempting
+        # to establish/reconnect a voice connection.
+        logger.warning(
+            "Voice connection is already being handled by "
+            "discord.py for %s: %s",
+            channel.name,
+            exc,
+        )
+
     except discord.Forbidden:
         logger.error(
-            "Permission denied connecting to permanent voice channel %s",
-            channel.name
+            "Permission denied connecting to permanent "
+            "voice channel: %s",
+            channel.name,
         )
+
     except discord.HTTPException as exc:
         logger.error(
-            "HTTP error connecting to permanent voice channel %s: %s",
+            "HTTP error connecting to permanent voice channel "
+            "%s: %s",
             channel.name,
-            exc
+            exc,
         )
-    except Exception as exc:
-        logger.error(
-            "Unexpected error connecting to permanent voice channel %s: %s",
+
+    except Exception:
+        logger.exception(
+            "Unexpected error connecting to permanent "
+            "voice channel: %s",
             channel.name,
-            exc
         )
 
 
-async def ensure_permanent_connection(bot: discord.Client) -> None:
+async def ensure_permanent_connection(
+    bot: discord.Client,
+) -> None:
     """Ensure the bot is connected to the permanent voice channel.
 
-    This can be called periodically to reconnect if the bot was disconnected.
-    Uses exponential backoff for retries.
+    The function waits before attempting a custom reconnect so that
+    discord.py's own voice reconnection has priority.
     """
-    channel_id = get_permanent_channel_id()
-    if not channel_id:
+
+    channel = _find_permanent_channel(bot)
+
+    if channel is None:
+        logger.warning(
+            "Permanent voice channel could not be found."
+        )
         return
 
-    # Find the channel
-    channel = None
-    for guild in bot.guilds:
-        found = guild.get_channel(channel_id)
-        if found is not None:
-            channel = found
-            break
+    # -------------------------------------------------------------- #
+    # Give discord.py time to recover first.
+    # -------------------------------------------------------------- #
 
-    if channel is None or not isinstance(channel, discord.VoiceChannel):
-        logger.warning("Permanent voice channel %s not found or invalid", channel_id)
+    logger.info(
+        "Waiting %.1f seconds before checking permanent "
+        "voice connection.",
+        _RECONNECT_DELAY,
+    )
+
+    await asyncio.sleep(_RECONNECT_DELAY)
+
+    # discord.py may already have recovered.
+    if _is_connected_to_permanent_channel(channel):
+        logger.info(
+            "discord.py successfully restored permanent "
+            "voice connection."
+        )
         return
 
-    # Check if already connected
-    voice_client = channel.guild.voice_client
-    if voice_client is not None and voice_client.channel.id == channel.id:
-        return
+    # -------------------------------------------------------------- #
+    # Custom fallback reconnection.
+    # -------------------------------------------------------------- #
 
-    # Attempt reconnection with backoff
     backoff = _INITIAL_BACKOFF
+
     for attempt in range(1, _MAX_RETRIES + 1):
+
+        # Check again before every attempt.
+        if _is_connected_to_permanent_channel(channel):
+            logger.info(
+                "Permanent voice connection restored."
+            )
+            return
+
         try:
             logger.info(
-                "Reconnection attempt %d/%d to permanent voice channel: %s",
+                "Permanent VC fallback reconnect "
+                "attempt %d/%d: %s",
                 attempt,
                 _MAX_RETRIES,
-                channel.name
+                channel.name,
             )
+
+            # If a stale voice client exists, disconnect it first.
+            voice_client = channel.guild.voice_client
+
+            if voice_client is not None:
+
+                if voice_client.is_connected():
+
+                    if (
+                        voice_client.channel is not None
+                        and voice_client.channel.id == channel.id
+                    ):
+                        logger.info(
+                            "Permanent VC is already connected."
+                        )
+                        return
+
+                try:
+                    await voice_client.disconnect(
+                        force=True
+                    )
+
+                except Exception:
+                    logger.debug(
+                        "Ignoring error while cleaning "
+                        "stale voice connection.",
+                        exc_info=True,
+                    )
+
+                # Give Discord a moment to release the old session.
+                await asyncio.sleep(1.5)
+
+            # ------------------------------------------------------ #
+            # Connect.
+            # ------------------------------------------------------ #
+
             await channel.connect()
-            logger.info(
-                "Reconnected to permanent voice channel: %s",
-                channel.name
+
+            # Verify the connection.
+            await asyncio.sleep(1.0)
+
+            if _is_connected_to_permanent_channel(channel):
+                logger.info(
+                    "Successfully reconnected to permanent "
+                    "voice channel: %s",
+                    channel.name,
+                )
+                return
+
+            logger.warning(
+                "Voice connect completed but the permanent "
+                "voice connection could not be verified."
             )
-            return
+
+        except discord.ClientException as exc:
+
+            logger.warning(
+                "Discord client rejected permanent VC "
+                "reconnection attempt %d/%d: %s",
+                attempt,
+                _MAX_RETRIES,
+                exc,
+            )
+
         except discord.Forbidden:
+
             logger.error(
-                "Permission denied reconnecting to permanent voice channel %s",
-                channel.name
+                "Permission denied reconnecting to "
+                "permanent voice channel: %s",
+                channel.name,
             )
             return
+
         except discord.HTTPException as exc:
+
             logger.warning(
-                "HTTP error on reconnection attempt %d to %s: %s",
+                "HTTP error on permanent VC reconnect "
+                "attempt %d/%d: %s",
                 attempt,
-                channel.name,
-                exc
+                _MAX_RETRIES,
+                exc,
             )
-        except Exception as exc:
-            logger.warning(
-                "Unexpected error on reconnection attempt %d to %s: %s",
+
+        except Exception:
+
+            logger.exception(
+                "Unexpected error on permanent VC "
+                "reconnect attempt %d/%d.",
                 attempt,
-                channel.name,
-                exc
+                _MAX_RETRIES,
             )
+
+        # ---------------------------------------------------------- #
+        # Backoff before the next attempt.
+        # ---------------------------------------------------------- #
 
         if attempt < _MAX_RETRIES:
+
+            logger.info(
+                "Waiting %.1f seconds before next "
+                "permanent VC reconnect attempt.",
+                backoff,
+            )
+
             await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, _MAX_BACKOFF)
+
+            backoff = min(
+                backoff * 2,
+                _MAX_BACKOFF,
+            )
 
     logger.error(
-        "Failed to reconnect to permanent voice channel %s after %d attempts",
-        channel.name,
-        _MAX_RETRIES
+        "Failed to reconnect to permanent voice channel "
+        "after %d attempts.",
+        _MAX_RETRIES,
     )
 
 
-def _is_bot_disconnected_from_permanent(bot: discord.Client) -> bool:
-    """Check if the bot is disconnected from the permanent voice channel.
+def _is_bot_disconnected_from_permanent(
+    bot: discord.Client,
+) -> bool:
+    """Check whether the bot is actually disconnected."""
 
-    Returns True if:
-    - Permanent channel is configured
-    - Bot is not connected to any voice channel in that guild
-    - OR bot is connected to a different channel in that guild
+    channel = _find_permanent_channel(bot)
 
-    Returns False if:
-    - Permanent channel is not configured
-    - Bot is already connected to the permanent channel
-    """
-    global _reconnect_task
-
-    channel_id = get_permanent_channel_id()
-    if not channel_id:
+    if channel is None:
         return False
 
-    # Check if a reconnection task is already running
-    if _reconnect_task is not None and not _reconnect_task.done():
-        return False  # Already attempting reconnection
-
-    # Find the permanent channel
-    channel = None
-    for guild in bot.guilds:
-        found = guild.get_channel(channel_id)
-        if found is not None:
-            channel = found
-            break
-
-    if channel is None or not isinstance(channel, discord.VoiceChannel):
-        return False  # Channel not found or invalid
-
-    # Check bot's current voice state in that guild
-    voice_client = channel.guild.voice_client
-    if voice_client is None:
-        return True  # Bot is not connected to any VC in that guild
-
-    if voice_client.channel.id != channel_id:
-        return True  # Bot is connected to a different channel
-
-    return False  # Bot is connected to the permanent channel
+    return not _is_connected_to_permanent_channel(channel)
 
 
-def schedule_reconnection(bot: discord.Client) -> None:
-    """Schedule a reconnection task if the bot is disconnected from permanent VC.
+def schedule_reconnection(
+    bot: discord.Client,
+) -> None:
+    """Schedule a delayed fallback reconnection.
 
-    This function is non-blocking and creates a background task for reconnection.
-    It checks if a reconnection is already in progress to prevent duplicates.
+    This deliberately does not reconnect immediately because
+    discord.py has its own automatic voice reconnection logic.
     """
+
     global _reconnect_task
+
+    # -------------------------------------------------------------- #
+    # Don't create duplicate reconnect tasks.
+    # -------------------------------------------------------------- #
+
+    if (
+        _reconnect_task is not None
+        and not _reconnect_task.done()
+    ):
+        return
+
+    # -------------------------------------------------------------- #
+    # Only schedule when actually disconnected.
+    # -------------------------------------------------------------- #
 
     if not _is_bot_disconnected_from_permanent(bot):
         return
 
-    # Cancel existing task if it's done
-    if _reconnect_task is not None and _reconnect_task.done():
-        _reconnect_task = None
+    logger.info(
+        "Permanent voice connection lost. "
+        "Scheduling delayed fallback reconnect."
+    )
 
-    # Create new reconnection task if none exists
-    if _reconnect_task is None:
-        logger.info("Permanent voice channel disconnected; attempting reconnect.")
-        _reconnect_task = asyncio.create_task(ensure_permanent_connection(bot))
-        # Clean up task reference when done
-        def _cleanup_task(task: asyncio.Task[None]) -> None:
-            global _reconnect_task
-            if task == _reconnect_task:
-                _reconnect_task = None
+    _reconnect_task = asyncio.create_task(
+        ensure_permanent_connection(bot),
+        name="permanent-vc-reconnect",
+    )
 
-        _reconnect_task.add_done_callback(_cleanup_task)
+    def _cleanup_task(
+        task: asyncio.Task[None],
+    ) -> None:
+
+        global _reconnect_task
+
+        if task is _reconnect_task:
+            _reconnect_task = None
+
+        if task.cancelled():
+            return
+
+        try:
+            task.exception()
+
+        except Exception:
+            logger.exception(
+                "Permanent VC reconnect task failed."
+            )
+
+    _reconnect_task.add_done_callback(
+        _cleanup_task
+    )
 
 
 def on_bot_voice_state_update(
@@ -295,25 +446,28 @@ def on_bot_voice_state_update(
     before: discord.VoiceState,
     after: discord.VoiceState,
 ) -> None:
-    """Handle bot voice state changes to trigger reconnection if needed.
+    """Handle the bot's own voice state changes.
 
-    This function should be called from the bot's on_voice_state_update event.
-    It only reacts to the bot's own voice state changes, not normal users.
-
-    Parameters
-    ----------
-    bot:
-        The Discord bot client.
-    member:
-        The member whose voice state changed.
-    before:
-        The voice state before the change.
-    after:
-        The voice state after the change.
+    Only the bot's own voice state triggers the fallback reconnect.
     """
-    # Only react to the bot's own voice state changes
+
+    if bot.user is None:
+        return
+
+    # Ignore all other members.
     if member.id != bot.user.id:
         return
 
-    # Schedule reconnection check (non-blocking)
+    # If the bot has just joined/moved into the permanent channel,
+    # no reconnect is necessary.
+    channel = _find_permanent_channel(bot)
+
+    if (
+        channel is not None
+        and after.channel is not None
+        and after.channel.id == channel.id
+    ):
+        return
+
+    # Schedule a delayed fallback check.
     schedule_reconnection(bot)
