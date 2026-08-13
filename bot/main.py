@@ -60,6 +60,7 @@ class VCBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         from bot.cogs import (
+            AntiSpamCog,
             CreateCommandsCog,
             HelpCog,
             SettingsCog,
@@ -72,6 +73,7 @@ class VCBot(commands.Bot):
         await self.add_cog(VcCommandsCog(self))
         await self.add_cog(CreateCommandsCog(self))
         await self.add_cog(HelpCog(self))
+        await self.add_cog(AntiSpamCog(self))
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (ID: %s)", self.user, self.user.id)
