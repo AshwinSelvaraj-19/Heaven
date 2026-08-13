@@ -2,6 +2,7 @@
 
 A Discord bot (discord.py 2.x) that lets server admins configure temporary voice channels. Users join a designated lobby channel and the bot creates a private voice channel for them under a configured category, applies a user limit and bitrate, and deletes the channel automatically once it's been empty for a configurable duration.
 
+Has Live Channel status feature
 ## Features
 
 - **Slash commands only** — no text commands.
