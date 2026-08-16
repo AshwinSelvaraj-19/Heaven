@@ -421,6 +421,52 @@ class MemberActionView(View):
                     ephemeral=True,
                 )
 
+            return
+
+        if self.action == "mute":
+
+            if not _bot_can(channel, "mute_members"):
+                await interaction.response.send_message(
+                    "❌ I don't have **Mute Members** permission.",
+                    ephemeral=True,
+                )
+                return
+
+            if member not in channel.members:
+                await interaction.response.send_message(
+                    "❌ That member is not in your voice channel.",
+                    ephemeral=True,
+                )
+                return
+
+            try:
+                # Toggle the Discord server-mute state.
+                new_mute_state = not member.voice.mute
+
+                await member.edit(
+                    mute=new_mute_state,
+                    reason="Heaven VC Control Panel — mute toggle",
+                )
+
+                status = "muted" if new_mute_state else "unmuted"
+
+                await interaction.response.send_message(
+                    f"🔇 {member.mention} has been **{status}**.",
+                    ephemeral=True,
+                )
+
+            except discord.Forbidden:
+                await interaction.response.send_message(
+                    "❌ I cannot mute/unmute that member. Check my role hierarchy and **Mute Members** permission.",
+                    ephemeral=True,
+                )
+
+            except discord.HTTPException:
+                await interaction.response.send_message(
+                    "❌ Discord rejected the mute operation.",
+                    ephemeral=True,
+                )
+
 
 # =====================================================================
 # Target channel selector
@@ -940,6 +986,27 @@ class VCControlPanelView(View):
         )
 
     # -----------------------------------------------------------------
+    # Mute
+    # -----------------------------------------------------------------
+
+    @discord.ui.button(
+        label="MUTE",
+        style=discord.ButtonStyle.secondary,
+        row=2,
+    )
+    async def mute(
+        self,
+        interaction: discord.Interaction,
+        button: Button,
+    ) -> None:
+
+        await interaction.response.send_message(
+            "🔇 Select the member to mute/unmute:",
+            view=MemberActionView(self, "mute"),
+            ephemeral=True,
+        )
+
+    # -----------------------------------------------------------------
     # Kick all
     # -----------------------------------------------------------------
 
@@ -999,6 +1066,82 @@ class VCControlPanelView(View):
         message = (
             f"👥 Kicked **{kicked}** member"
             f"{'' if kicked == 1 else 's'}."
+        )
+
+        if skipped:
+            message += (
+                f"\n⚠️ Skipped **{skipped}** member"
+                f"{'' if skipped == 1 else 's'}."
+            )
+
+        await interaction.response.send_message(
+            message,
+            ephemeral=True,
+        )
+
+    # -----------------------------------------------------------------
+    # Mute all
+    # -----------------------------------------------------------------
+
+    @discord.ui.button(
+        label="MUTE ALL",
+        style=discord.ButtonStyle.secondary,
+        row=2,
+    )
+    async def mute_all(
+        self,
+        interaction: discord.Interaction,
+        button: Button,
+    ) -> None:
+
+        channel = await _require_control(
+            interaction,
+            "mute_members",
+        )
+
+        if channel is None:
+            return
+
+        if not _bot_can(channel, "mute_members"):
+            await interaction.response.send_message(
+                "❌ I don't have **Mute Members** permission.",
+                ephemeral=True,
+            )
+            return
+
+        me = channel.guild.me
+
+        if me is None:
+            await interaction.response.send_message(
+                "❌ I am not available in this server.",
+                ephemeral=True,
+            )
+            return
+
+        muted = 0
+        skipped = 0
+
+        for member in list(channel.members):
+
+            if member.id == me.id:
+                continue
+
+            if member.voice is None or member.voice.mute:
+                continue
+
+            try:
+                await member.edit(
+                    mute=True,
+                    reason="Heaven VC Control Panel — mute all",
+                )
+                muted += 1
+
+            except (discord.Forbidden, discord.HTTPException):
+                skipped += 1
+
+        message = (
+            f"🔇 Muted **{muted}** member"
+            f"{'' if muted == 1 else 's'}."
         )
 
         if skipped:
@@ -1086,7 +1229,10 @@ def create_control_embed(
 
     embed.add_field(
         name="MEMBER OPERATIONS",
-        value="`ALLOW`  `REJECT`  `KICK`  `MOVE`  `PULL`  `KICK ALL`",
+        value=(
+            "`ALLOW`  `REJECT`  `KICK`  `MOVE`  `PULL`  "
+            "`MUTE`  `KICK ALL`  `MUTE ALL`"
+        ),
         inline=False,
     )
 
