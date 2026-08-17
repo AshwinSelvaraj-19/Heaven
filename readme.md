@@ -4,7 +4,7 @@ A Discord bot (discord.py 2.x) that lets server admins configure temporary voice
 
 Has Live Channel status feature
 ## Features
-
+         
 - **Slash commands only** — no text commands.
 - `/settings vc category <voice_channel>` — sets the category temp channels are created in.
 - `/settings vc lobby <voice_channel>` — sets the lobby channel that triggers temp channel creation.
