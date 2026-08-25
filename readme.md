@@ -16,7 +16,7 @@ Has Live Channel status feature
 
 ## Setup
       
-### 1. Create your bot
+### 1. Create your bot           
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and create a new application.
 2. Under **Bot**, create a bot user and copy the **token**.
